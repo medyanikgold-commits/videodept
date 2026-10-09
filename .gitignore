@@ -1,0 +1,6 @@
+data/
+output/
+bot/.env
+__pycache__/
+venv/
+*_work/

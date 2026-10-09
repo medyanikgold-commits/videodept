@@ -1,0 +1,5 @@
+anthropic
+edge-tts
+faster-whisper
+Pillow
+requests

@@ -1,0 +1,11 @@
+{
+  "title": "Кофе: 5 фактов, которые вас удивят",
+  "scenes": [
+    {"voice": "Вы пьёте кофе каждый день, но точно не знаете вот это.", "caption": "Вы этого не знали", "image_prompt": "steaming cup of coffee on dark wooden table, dramatic morning light, cinematic close-up, vertical"},
+    {"voice": "Кофейные ягоды открыли козы. Пастух заметил, что после них стадо скачет всю ночь.", "caption": "Кофе открыли козы", "image_prompt": "energetic goats jumping near coffee bushes with red berries, Ethiopian highlands, golden hour, vertical"},
+    {"voice": "Кофеин начинает действовать через десять минут, а пик наступает примерно через сорок пять.", "caption": "Пик через 45 минут", "image_prompt": "person at desk looking at wall clock holding coffee cup, warm office light, vertical"},
+    {"voice": "Тёмная обжарка содержит меньше кофеина, чем светлая. Крепкий вкус ещё не значит бодрость.", "caption": "Тёмный не крепче", "image_prompt": "light and dark roasted coffee beans side by side, macro photography, studio lighting, vertical"},
+    {"voice": "Финляндия пьёт больше всех: около двенадцати килограммов кофе на человека в год.", "caption": "12 кг в год", "image_prompt": "cozy Finnish cabin with snowy window and coffee pot on table, warm light, vertical"},
+    {"voice": "Сохраните, чтобы удивить друзей, и подпишитесь на новые факты каждый день!", "caption": "Сохрани и подпишись", "image_prompt": "friends laughing together in a cafe holding coffee cups, bright cheerful atmosphere, vertical"}
+  ]
+}
