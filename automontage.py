@@ -50,12 +50,21 @@ def has_audio(path):
 
 # ---------------------------------------------------------------- 1. Вертикаль и склейка
 
-def normalize(src, out):
-    """Любой клип -> 1080x1920, 30 к/с. Горизонтальное видео кладётся на размытый фон."""
-    vf = (f"[0:v]split[a][b];"
-          f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=25:2[bg];"
-          f"[b]scale={W}:{H}:force_original_aspect_ratio=decrease[fg];"
-          f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={FPS},format=yuv420p[v]")
+def normalize(src, out, fit="fill"):
+    """Любой клип -> 1080x1920, 30 к/с, чуть ярче и сочнее.
+
+    fit="fill": кадр заполняется целиком (горизонтальное видео обрезается по центру, как в рилс).
+    fit="blur": горизонтальное видео целиком, по бокам размытый фон.
+    """
+    look = "eq=contrast=1.06:saturation=1.18:brightness=0.01,unsharp=5:5:0.6"
+    if fit == "blur":
+        vf = (f"[0:v]split[a][b];"
+              f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=25:2[bg];"
+              f"[b]scale={W}:{H}:force_original_aspect_ratio=decrease[fg];"
+              f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{look},fps={FPS},format=yuv420p[v]")
+    else:
+        vf = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+              f"setsar=1,{look},fps={FPS},format=yuv420p[v]")
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src)]
     if not has_audio(src):
         cmd += ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
@@ -78,7 +87,7 @@ def join(clips, out, work):
 WHISPER_CHILD = r"""
 import json, sys
 from faster_whisper import WhisperModel
-model = WhisperModel(sys.argv[2], device="auto", compute_type="int8")
+model = WhisperModel(sys.argv[2], device="cpu", compute_type="int8")
 segments, _ = model.transcribe(sys.argv[1], language="ru", word_timestamps=True, vad_filter=True)
 words = [{"w": w.word.strip(), "s": round(w.start, 3), "e": round(w.end, 3)}
          for seg in segments for w in (seg.words or []) if w.word.strip()]
@@ -96,8 +105,13 @@ def transcribe(video, model_size, work):
     run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(video), "-ac", "1", "-ar", "16000",
          str(wav)])
     print(f"  распознаю речь (модель {model_size}, первый раз скачается)...")
-    res = subprocess.run([sys.executable, "-c", WHISPER_CHILD, str(wav), model_size, str(out)],
-                         capture_output=True, text=True)
+    for size in dict.fromkeys([model_size, "base"]):  # если модель не влезла в память, пробуем меньше
+        res = subprocess.run([sys.executable, "-c", WHISPER_CHILD, str(wav), size, str(out)],
+                             capture_output=True, text=True)
+        if res.returncode == 0 and out.exists():
+            break
+        print(f"  ! модель {size} не сработала: "
+              f"{(res.stderr.strip().splitlines() or ['?'])[-1][:200]}")
     if res.returncode != 0 or not out.exists():
         last = (res.stderr.strip().splitlines() or ["неизвестная ошибка"])[-1]
         print(f"  ! распознавание не удалось ({last[:150]}): без субтитров, паузы режу по тишине")
@@ -152,13 +166,28 @@ def keep_silent_clips(segs, bounds):
     return merged
 
 
-def cut(video, segs, out):
-    expr = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in segs)
+AUDIO_POLISH = ("highpass=f=80,afftdn=nf=-25,"
+                "acompressor=threshold=-18dB:ratio=3:attack=5:release=120,"
+                "loudnorm=I=-14:TP=-1.5:LRA=11")
+
+
+def cut(video, segs, out, punch=True):
+    """Склеивает куски с речью. Каждый второй кусок чуть приближен (джамп-кат, как в рилс),
+    звук чистится от шума и выравнивается по громкости."""
+    parts, n = [], len(segs)
+    for i, (a, b) in enumerate(segs):
+        zoom = 1.12 if (punch and i % 2 == 1) else 1.0
+        z = f",scale={int(W * zoom) // 2 * 2}:-2,crop={W}:{H}" if zoom > 1 else ""
+        parts.append(f"[0:v]trim={a:.3f}:{b:.3f},setpts=PTS-STARTPTS{z},setsar=1[v{i}];"
+                     f"[0:a]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS[a{i}]")
+    fc = ";".join(parts) + ";" + "".join(f"[v{i}][a{i}]" for i in range(n)) + \
+        f"concat=n={n}:v=1:a=1[v][araw];[araw]{AUDIO_POLISH}[a]"
+    script = Path(out).with_suffix(".filter.txt")
+    script.write_text(fc, encoding="utf-8")  # длинный фильтр через файл, чтобы не упереться в лимит строки
     run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(video),
-         "-vf", f"select='{expr}',setpts=N/FRAME_RATE/TB",
-         "-af", f"aselect='{expr}',asetpts=N/SR/TB",
+         "-filter_complex_script", str(script), "-map", "[v]", "-map", "[a]",
          "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-         "-c:a", "aac", "-b:a", "192k", str(out)])
+         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", str(out)])
 
 
 def remap_words(words, segs):
@@ -205,7 +234,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Sub,{FONT_NAME},84,&H0000DDFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,560,1
+Style: Sub,{FONT_NAME},94,&H0000DDFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,560,1
 Style: Title,{FONT_NAME},86,&H00FFFFFF,&H00FFFFFF,&H00000000,&HB0000000,-1,0,0,0,100,100,0,0,3,22,0,8,70,70,260,1
 Style: Cta,{FONT_NAME},96,&H0000DDFF,&H00FFFFFF,&H00000000,&HC0000000,-1,0,0,0,100,100,0,0,3,26,0,5,70,70,0,1
 Style: CtaSub,{FONT_NAME},58,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,5,2,5,70,70,0,1
@@ -285,6 +314,9 @@ def main():
     ap.add_argument("--max-pause", type=float, default=0.45,
                     help="паузы длиннее этого (сек) вырезаются")
     ap.add_argument("--keep-pauses", action="store_true", help="не вырезать паузы")
+    ap.add_argument("--fit", choices=["fill", "blur"], default="fill",
+                    help="горизонтальное видео: fill обрезать по центру, blur целиком на размытом фоне")
+    ap.add_argument("--no-punch", action="store_true", help="без приближений на склейках")
     ap.add_argument("--no-subs", action="store_true", help="без субтитров")
     ap.add_argument("--whisper", default="small",
                     help="модель распознавания: tiny, base, small, medium (точнее, но медленнее)")
@@ -306,7 +338,7 @@ def main():
     norm = []
     for i, c in enumerate(args.clips):
         p = work / f"norm_{i}.mp4"
-        normalize(c, p)
+        normalize(c, p, args.fit)
         norm.append(p)
     joined = work / "joined.mp4"
     join(norm, joined, work)
@@ -340,7 +372,7 @@ def main():
     if not args.keep_pauses:
         segs = keep_silent_clips(segs, bounds)
     cutv = work / "cut.mp4"
-    cut(joined, segs, cutv)
+    cut(joined, segs, cutv, punch=not args.no_punch)
     new_total = duration(cutv)
     words2 = remap_words(words, segs) if words else []
     print(f"   было {total:.1f} с, стало {new_total:.1f} с")

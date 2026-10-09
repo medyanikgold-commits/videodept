@@ -26,6 +26,10 @@ python3 -m venv "$APP/venv"
 "$APP/venv/bin/pip" install -q --upgrade pip
 "$APP/venv/bin/pip" install -q -r "$APP/requirements.txt" "python-telegram-bot[job-queue]>=21,<23"
 
+echo "   скачиваю модель распознавания речи (для субтитров)"
+"$APP/venv/bin/python" -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')" >/dev/null 2>&1 \
+  && echo "   модель речи готова" || echo "   ВНИМАНИЕ: модель речи не скачалась, субтитров не будет. Пришли этот экран Claude."
+
 echo "== 4/6 Проверяю память"
 MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
 if [ "$MEM_MB" -lt 3500 ] && ! swapon --show | grep -q swapfile; then
