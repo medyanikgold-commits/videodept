@@ -25,6 +25,11 @@ FONT_FILE = HERE / "fonts" / "DejaVuSans-Bold.ttf"
 FONT_NAME = "DejaVu Sans"
 
 
+def stage(agent, text):
+    """Сообщает панели видеоотдела, какой помощник сейчас чем занят."""
+    print(f"@@{agent}|{text}", flush=True)
+
+
 def run(cmd, **kw):
     subprocess.run(cmd, check=True, **kw)
 
@@ -297,6 +302,7 @@ def main():
     work.mkdir(exist_ok=True)
 
     print("1/5 Делаю вертикаль и склеиваю клипы...")
+    stage("editor", f"делает вертикаль и склеивает {len(args.clips)} клип(а)")
     norm = []
     for i, c in enumerate(args.clips):
         p = work / f"norm_{i}.mp4"
@@ -312,6 +318,7 @@ def main():
         t += d
 
     print("2/5 Расшифровываю речь...")
+    stage("transcriber", "расшифровывает твою речь")
     if args.words:
         words = json.loads(Path(args.words).read_text(encoding="utf-8"))
     elif args.no_subs and args.keep_pauses:
@@ -323,6 +330,7 @@ def main():
                                                     encoding="utf-8")
 
     print("3/5 Вырезаю паузы...")
+    stage("editor", "вырезает паузы")
     if args.keep_pauses:
         segs = [[0, total]]
     elif words:
@@ -340,6 +348,7 @@ def main():
     title, post = args.title, None
     if args.ai and words:
         print("   Claude придумывает заголовок и текст поста...")
+        stage("writer", "придумывает заголовок и текст поста")
         res = ai_hook_and_post(words2, args.code, args.model)
         title = title or res.get("hook")
         post = res.get("post")
@@ -347,12 +356,14 @@ def main():
     cta_sub = "Предзаказ из Китая · проверю товар на фабрике" if cta else None
 
     print("4/5 Накладываю субтитры и надписи...")
+    stage("editor", "накладывает субтитры и надписи")
     fonts = work / "fonts"
     fonts.mkdir(exist_ok=True)
     shutil.copy(FONT_FILE, fonts / FONT_FILE.name)
     build_ass([] if args.no_subs else words2, new_total, title, cta, cta_sub, work / "subs.ass")
 
     print("5/5 Свожу звук и сохраняю...")
+    stage("editor", "сводит звук и сохраняет ролик")
     final = (out_dir / f"{name}.mp4").resolve()
     # ffmpeg запускается из рабочей папки, чтобы пути к субтитрам работали и в Windows
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", "cut.mp4"]

@@ -27,6 +27,11 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 W, H, FPS = 1080, 1920, 30
 HERE = Path(__file__).resolve().parent
 
+
+def stage(agent, text):
+    """Сообщает панели видеоотдела, какой помощник сейчас чем занят."""
+    print(f"@@{agent}|{text}", flush=True)
+
 # ---------------------------------------------------------------- 1. Сценарий
 
 SCRIPT_PROMPT = """Ты сценарист вирусных вертикальных роликов (VK Клипы, Reels, Shorts).
@@ -296,10 +301,13 @@ def make_reel(script, args, out_dir):
     user_imgs = sorted(Path(args.images).iterdir()) if args.images else []
     rendered = []
     for i, sc in enumerate(script["scenes"]):
-        print(f"Сцена {i + 1}/{len(script['scenes'])}: {sc['caption']}")
+        n = len(script["scenes"])
+        print(f"Сцена {i + 1}/{n}: {sc['caption']}")
+        stage("voice", f"озвучивает сцену {i + 1} из {n}")
         audio = work / f"voice_{i}.mp3"
         dur = voice_scene(sc["voice"], args.voice, args.rate, audio)
         raw = work / f"raw_{i}.jpg"
+        stage("artist", f"рисует картинку к сцене {i + 1} из {n}: {sc['caption']}")
         if i < len(user_imgs):
             shutil.copy(user_imgs[i], raw)
         elif args.image_provider == "none":
@@ -308,10 +316,12 @@ def make_reel(script, args, out_dir):
             generate_image(sc["image_prompt"], raw, i, sc["caption"], args.image_provider)
         img = work / f"img_{i}.jpg"
         fit_cover(raw, img)
+        stage("editor", f"монтирует сцену {i + 1} из {n}")
         rendered.append(render_scene(i, sc, img, audio, dur, font, work))
 
     final = out_dir / f"{name}.mp4"
     print("Склеиваю ролик...")
+    stage("editor", "склеивает ролик и сводит звук")
     concat(rendered, args.music, final, work)
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
@@ -353,6 +363,7 @@ def main():
         if t.strip() and not t.strip().startswith("#")]
     for n, topic in enumerate(topics, 1):
         print(f"\n=== Ролик {n}/{len(topics)}: {topic}\nПишу сценарий...")
+        stage("writer", f"пишет сценарий «{topic}»")
         try:
             make_reel(write_script(topic, args.seconds, args.style, args.model, brand),
                       args, out_dir)
